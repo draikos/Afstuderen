@@ -36,6 +36,26 @@ classdef Graph < handle
       self.timeline = [0 2000];
     end
     
+
+    methods
+        function self = Graph(view)
+            self.view = view;
+            self.scroll = 0;
+            self.zoom = [-3 3];
+            self.timeline = [0 2000];
+        end
+        
+        function toggleQRS(self, ~, ~)
+            if ~isempty(self.qrsLine)
+                state = self.qrsLine.Visible;
+                
+                if strcmp(state, 'off')
+                    self.qrsLine.Visible = 'on';
+                else
+                    self.qrsLine.Visible = 'off';
+                end
+            end
+
     function toggleQRS(self, ~, ~)
       if ~isempty(self.qrsLine)
         state = self.qrsLine.Visible;
@@ -44,6 +64,7 @@ classdef Graph < handle
           self.qrsLine.Visible = 'on';
         else
           self.qrsLine.Visible = 'off';
+
         end
       end
     end
@@ -307,6 +328,332 @@ classdef Graph < handle
           self.points{I} = self.analyzer.all(data(:, I), self.tresholds{I}{:});
         end
         
+
+        function draw(self, data)
+            qrs = QRS.Analyzer(data);
+            
+            self.analyzer = AF.Analyzer(qrs.qrs, length(data(:,1)));
+            self.regions = AF.Util.regions(qrs.qrs, length(data(:,1)));
+            if isempty(self.tresholds)
+                self.tresholds = cell(length(data(1, :)), 1);
+            end
+            self.channel = 1;
+            frag = AF.Util.split(data(:,1), self.regions);
+            
+            self.dataLine = plot(self.view, data(:,1), 'k'); hold on;
+            self.qrsLine = plot(self.view, frag.qrs, 'g'); hold on;
+            % find peaks on the graph, gets updated with graph.update()
+            % tweak for more accurate peak finding. Valleys must be added in
+            % aswell
+            [self.pks,self.locs] = findpeaks(data(:,1), 'MinPeakDistance', 200, 'MinPeakHeight', 0.5);
+            self.plotPeaks = plot(self.view,self.locs,self.pks,'rs');hold off;
+            
+            ylim(self.view, self.zoom);
+            xlim(self.view, self.timeline);
+            
+            set(self.view, 'YTick',[], 'YTickLabel',[], 'box', 'off',...
+                'XAxisLocation', 'top');
+            
+            set(self.view, 'ButtonDownFcn', @self.markFixer);
+            set(self.dataLine, 'ButtonDownFcn', @self.markFixer);
+            set(self.qrsLine, 'ButtonDownFcn', @self.markFixer);
+            % data naar excel toe schrijven
+            % self.writeToExcelFil(data);
+            
+        end
+        
+        % Functie snel geschreven door Ben voor test
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        %     function writeToExcelFile(~, xData)
+        %         filename = 'C:\Users\502896\Desktop\Documentatie Stagiaires\Ben Havenaar\test.xlsx';
+        %         xlswrite(filename, xData);
+        %     end
+        
+        
+        
+        
+        %%----------------------------------------------------------------------
+        % redraw function from jelle, this will redraw the qrs line with
+        % the manual markings
+        
+        function redraw(self)
+            
+            self.analyzer = AF.Analyzer(self.locations_QRS, length(self.saveDrawData(:,1)));
+            self.regions = AF.Util.regions(self.locations_QRS, length(self.saveDrawData(:,1)));
+            self.channel = 1;
+            frag = AF.Util.split(self.saveDrawData(:,1), self.regions);
+            disp(frag.qrs);
+            self.dataLine = plot(self.saveView, self.saveData(:,1), 'k'); hold on;
+            self.qrsLine = plot(self.saveView, frag.qrs, 'g'); hold off;
+            
+            ylim(self.view, self.zoom);
+            xlim(self.view, self.timeline);
+            
+            set(self.view, 'YTick',[], 'YTickLabel',[], 'box', 'off',...
+                'XAxisLocation', 'top');
+            
+            set(self.view, 'ButtonDownFcn', @self.markFixer);
+            set(self.dataLine, 'ButtonDownFcn', @self.markFixer);
+            set(self.qrsLine, 'ButtonDownFcn', @self.markFixer);
+        end
+        
+        function update(self, data, ch)
+            % update graph
+            frag = AF.Util.split(data, self.regions);
+            self.channel = ch;
+            self.dataLine.YData = data;
+            self.qrsLine.YData  = frag.qrs;
+            % update peaks
+            [peaks,idx] = findpeaks(data, 'MinPeakDistance', 200, 'MinPeakHeight', 0.5);
+            self.plotPeaks.YData = peaks;
+            self.plotPeaks.XData = idx;
+            
+            self.current = 0;
+            if ~isempty(self.marks)
+                delete(self.marks);
+            end
+            
+            if ~isempty(self.tresholds{ch})
+                flagged = @(x) (x == 1 || x == 8 ||...
+                    x == 185 || x == 192);
+                
+                if ~flagged(self.channel)
+                    if (length(self.points) < ch || isempty(self.points{ch}))
+                        self.points{ch} = self.analyzer.all(data, self.tresholds{ch}{:});
+                    end
+                    
+                    if ~isempty(self.points{ch})
+                        self.marks = self.vline([self.points{ch}.location]);
+                        set(self.marks, 'ButtonDownFcn', @self.selectable);
+                    else
+                        self.marks = [];
+                    end
+                    
+                    self.callback('treshold', self.tresholds{ch}{:});
+                    
+                end
+            end
+            
+            if ~isempty(self.indicators)
+                delete(self.indicators);
+                self.indicators = [];
+                self.callback('clear');
+            end
+            
+            if ~isempty(self.highlight)
+                delete(self.highlight);
+                self.highlight = [];
+            end
+        end
+        
+        function mark(self, data, t, f)
+            p = {'SlopeTreshold', t.slope, 'AmpTreshold', t.amp, 'QrsTreshold', t.qrs};
+            
+            if ~isempty(self.marks)
+                delete(self.marks);
+            end
+            
+            % if flag is on set paramaters for all channels
+            if f == 1
+                wbar = waitbar(0, 'analyzing all channels...');
+                clear('self.points');
+                
+                for I = 1:length(self.tresholds)
+                    %           self.points{I} = self.analyzer.all(data, p{:});
+                    self.tresholds{I} = p;
+                    waitbar(I/length(self.tresholds), wbar);
+                end
+                
+                delete(wbar);
+            else
+                %         self.points{self.channel} = self.analyzer.all(data, p{:});
+                self.tresholds{self.channel} = p;
+            end
+            flagged = @(x) (x == 1 || x == 8 ||...
+                x == 185 || x == 192);
+            
+            if ~flagged(self.channel)
+                self.points{self.channel} = self.analyzer.all(data, p{:});
+                
+                
+                if ~isempty(self.points{self.channel})
+                    self.marks = self.vline([self.points{self.channel}.location]);
+                    set(self.marks, 'ButtonDownFcn', @self.selectable);
+                end
+            end
+        end
+        
+        function clearHiglight(self)
+            if ~isempty(self.indicators)
+                delete(self.indicators);
+                self.indicators = [];
+                self.callback('clear');
+            end
+            
+            if ~isempty(self.highlight)
+                delete(self.highlight);
+                self.highlight = [];
+            end
+        end
+        
+        function export(self, data)
+            wbar = waitbar(0, 'preparing for export...');
+            flagged = @(x) (x == 1 || x == 8 ||...
+                x == 185 || x == 192);
+            
+            for I = 1:length(self.tresholds)
+                if (length(self.points) < I || isempty(self.points{I})) && ~flagged(I)
+                    self.points{I} = self.analyzer.all(data(:, I), self.tresholds{I}{:});
+                end
+                
+                waitbar(I/length(self.tresholds), wbar);
+            end
+            
+            delete(wbar);
+            self.callback('export', self.points);
+        end
+        
+        function deleteMark(self)
+            
+            if ~isempty(self.indicators)
+                self.points{self.channel}(self.current) = [];
+                
+                delete(self.indicators);
+                self.indicators = [];
+                self.callback('clear');
+            end
+            
+            if ~isempty(self.highlight)
+                delete(self.highlight);
+                self.highlight = [];
+            end
+            
+            if ~isempty(self.marks)
+                delete(self.marks);
+                
+                if ~isempty(self.points)
+                    self.marks = self.vline([self.points{self.channel}.location]);
+                    set(self.marks, 'ButtonDownFcn', @self.selectable);
+                else
+                    self.marks = [];
+                end
+            end
+            
+        end
+        
+        function addMark(self, ~, ~)
+            x = get(self.view, 'CurrentPoint');
+            
+            tmp = self.analyzer.seeker(self.dataLine.YData, x(1));
+            try
+                self.points{self.channel} = [self.points{self.channel}([self.points{self.channel}.location] < tmp.location);...
+                    tmp; self.points{self.channel}([self.points{self.channel}.location] > tmp.location)];
+                
+                delete(self.marks);
+                self.marks = self.vline([tmp.location self.points{self.channel}.location]);
+                set(self.marks, 'ButtonDownFcn', @self.selectable);
+            catch
+                self.points{self.channel} = tmp;
+                self.marks = self.vline(tmp.location);
+                set(self.marks, 'ButtonDownFcn', @self.selectable);
+            end
+        end
+        
+        function followMouse(self)
+            y = get(self.view, 'Ylim');
+            x = get(self.view, 'CurrentPoint');
+            
+            if ~isempty(self.seeker)
+                self.seeker.XData = [x(1)-45 x(1)+45 x(1)+45 x(1)-45];
+                self.seeker.YData = [y(1) y(1) y(2) y(2)];
+            end
+        end
+        
+        
+        % gemaakt door jelle //////////////////////////////////////////////////
+        % TO DO:
+        % Integer 'point1' toegevoegd zodat de punten worden opgeslagen in
+        % dezelfde matrix.
+        % volgende stap = modulaire array (bijv. integer point1 gebruiken om
+        % de array met een rij te vergroten)
+        function getQrs(self)
+            x = get(self.view, 'CurrentPoint');
+            if self.integer_QRS == 0
+                self.integer_QRS = self.integer_QRS + 1;
+                self.locations_QRS(self.point1,1) = round(x(1,1));
+                disp(self.locations_QRS(self.point1,1));
+                
+                
+            else if self.integer_QRS == 1
+                    self.integer_QRS = self.integer_QRS + 1;
+                    self.locations_QRS(self.point1,2) = round(x(1,1));
+                    disp(self.locations_QRS(self.point1,1));
+                    disp(self.locations_QRS(:,:));
+                else
+                    self.integer_QRS = 0;
+                    self.point1 = self.point1 + 1;
+                    self.integer_QRS = self.integer_QRS + 1;
+                    self.locations_QRS(self.point1,1) = round(x(1,1));
+                    disp(self.locations_QRS(self.point1,1));
+                    
+                end
+            end
+        end
+        %semi functionele ctrl+z functie. verplaatst de laatst gebruikte rij
+        %met 0.
+        function deleteEntry(self)
+            if self.point1 > 0
+                self.locations_QRS(self.point1,:) = 0:0;
+                self.point1 = self.point1 - 1;
+                self.integer_QRS = 0;
+                disp(self.locations_QRS(:,:));
+            end
+            % Dit is nodig zodat self.point1 niet 0 kan zijn om een error te
+            % voorkomen in de getQRS functie (kan niet refereren naar een
+            % array op de rij '0')
+            if self.point1 == 0
+                self.point1 = 1;
+            end
+        end
+        %//////////////////////////////////////////////////////////////////////
+        
+        function handleSeeker(self, flag)
+            switch flag
+                case 'create'
+                    y = get(self.view, 'Ylim');
+                    x = get(self.view, 'CurrentPoint');
+                    
+                    if ~isempty(self.indicators)
+                        delete(self.indicators);
+                        self.indicators = [];
+                        self.callback('clear');
+                    end
+                    
+                    if ~isempty(self.highlight)
+                        delete(self.highlight);
+                        self.highlight = [];
+                    end
+                    
+                    self.seeker = patch(self.view, [x(1)-45 x(1)+45 x(1)+45 x(1)-45],...
+                        [y(1) y(1) y(2) y(2)], [1 .6 1], 'EdgeColor', 'None');
+                    uistack(self.seeker, 'bottom');
+                    
+                    set(self.seeker, 'ButtonDownFcn', @self.addMark);
+                    set(self.dataLine, 'ButtonDownFcn', @self.addMark);
+                    set(self.qrsLine, 'ButtonDownFcn', @self.addMark);
+                case 'delete'
+                    % TODO: handle delete
+                    if ~isempty(self.seeker)
+                        set(self.seeker, 'ButtonDownFcn', '');
+                        set(self.dataLine, 'ButtonDownFcn', @self.markFixer);
+                        set(self.qrsLine, 'ButtonDownFcn', @self.markFixer);
+                        
+                        delete(self.seeker);
+                        self.seeker = [];
+                    end
+            end
+        end
+
         waitbar(I/length(self.tresholds), wbar);
       end
       
@@ -405,6 +752,7 @@ classdef Graph < handle
             self.seeker = [];
           end
       end
+
     end
   end
   
