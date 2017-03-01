@@ -197,7 +197,6 @@ classdef Graph < handle
 %         filename = 'C:\Users\502896\Desktop\Documentatie Stagiaires\Ben Havenaar\test.xlsx';
 %         xlswrite(filename, xData);
 %     end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
     function update(self, data, ch)
       % update graph
