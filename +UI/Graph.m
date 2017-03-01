@@ -236,7 +236,7 @@ classdef Graph < handle
                 
                 if ~flagged(self.channel)
                     if (length(self.points) < ch || isempty(self.points{ch}))
-                        self.points{ch} = self.analyzer.all(data, self.tresholds{ch}{:});
+                      %  self.points{ch} = self.analyzer.all(data, self.tresholds{ch}{:});
                     end
                     
                     if ~isempty(self.points{ch})
