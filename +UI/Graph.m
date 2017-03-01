@@ -37,9 +37,6 @@ classdef Graph < handle
             self.scroll = 0;
             self.zoom = [-3 3];
             self.timeline = [0 2000];
-            self.locations_QRS = zeros(2,2);
-            self.integer_QRS = 0;
-            self.point1 = 1;
         end
         
         function toggleQRS(self, ~, ~)
@@ -166,8 +163,7 @@ classdef Graph < handle
         
         function draw(self, data)
             qrs = QRS.Analyzer(data);
-            self.saveDrawData = data;
-            self.saveView = self.view;
+            
             self.analyzer = AF.Analyzer(qrs.qrs, length(data(:,1)));
             self.regions = AF.Util.regions(qrs.qrs, length(data(:,1)));
             if isempty(self.tresholds)
@@ -175,11 +171,15 @@ classdef Graph < handle
             end
             self.channel = 1;
             frag = AF.Util.split(data(:,1), self.regions);
-            self.saveData = data(:,1);
-            disp(frag.qrs);
+            
             self.dataLine = plot(self.view, data(:,1), 'k'); hold on;
-            self.qrsLine = plot(self.view, frag.qrs, 'g'); hold off;
-
+            self.qrsLine = plot(self.view, frag.qrs, 'g'); hold on;
+            % find peaks on the graph, gets updated with graph.update()
+            % tweak for more accurate peak finding. Valleys must be added in
+            % aswell
+            [self.pks,self.locs] = findpeaks(data(:,1), 'MinPeakDistance', 200, 'MinPeakHeight', 0.5);
+            self.plotPeaks = plot(self.view,self.locs,self.pks,'rs');hold off;
+            
             ylim(self.view, self.zoom);
             xlim(self.view, self.timeline);
             
@@ -189,7 +189,20 @@ classdef Graph < handle
             set(self.view, 'ButtonDownFcn', @self.markFixer);
             set(self.dataLine, 'ButtonDownFcn', @self.markFixer);
             set(self.qrsLine, 'ButtonDownFcn', @self.markFixer);
+            % data naar excel toe schrijven
+            % self.writeToExcelFil(data);
+            
         end
+        
+        % Functie snel geschreven door Ben voor test
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        %     function writeToExcelFile(~, xData)
+        %         filename = 'C:\Users\502896\Desktop\Documentatie Stagiaires\Ben Havenaar\test.xlsx';
+        %         xlswrite(filename, xData);
+        %     end
+        
+        
+        
         
         %%----------------------------------------------------------------------
         % redraw function from jelle, this will redraw the qrs line with
@@ -204,7 +217,7 @@ classdef Graph < handle
             disp(frag.qrs);
             self.dataLine = plot(self.saveView, self.saveData(:,1), 'k'); hold on;
             self.qrsLine = plot(self.saveView, frag.qrs, 'g'); hold off;
-           
+            
             ylim(self.view, self.zoom);
             xlim(self.view, self.timeline);
             
@@ -213,17 +226,19 @@ classdef Graph < handle
             
             set(self.view, 'ButtonDownFcn', @self.markFixer);
             set(self.dataLine, 'ButtonDownFcn', @self.markFixer);
-            set(self.qrsLine, 'ButtonDownFcn', @self.markFixer);            
+            set(self.qrsLine, 'ButtonDownFcn', @self.markFixer);
         end
-        
         
         function update(self, data, ch)
             % update graph
             frag = AF.Util.split(data, self.regions);
             self.channel = ch;
-            
             self.dataLine.YData = data;
             self.qrsLine.YData  = frag.qrs;
+            % update peaks
+            [peaks,idx] = findpeaks(data, 'MinPeakDistance', 200, 'MinPeakHeight', 0.5);
+            self.plotPeaks.YData = peaks;
+            self.plotPeaks.XData = idx;
             
             self.current = 0;
             if ~isempty(self.marks)
@@ -236,7 +251,7 @@ classdef Graph < handle
                 
                 if ~flagged(self.channel)
                     if (length(self.points) < ch || isempty(self.points{ch}))
-                      %  self.points{ch} = self.analyzer.all(data, self.tresholds{ch}{:});
+                        self.points{ch} = self.analyzer.all(data, self.tresholds{ch}{:});
                     end
                     
                     if ~isempty(self.points{ch})
@@ -372,7 +387,6 @@ classdef Graph < handle
             catch
                 self.points{self.channel} = tmp;
                 self.marks = self.vline(tmp.location);
-                
                 set(self.marks, 'ButtonDownFcn', @self.selectable);
             end
         end
@@ -380,14 +394,12 @@ classdef Graph < handle
         function followMouse(self)
             y = get(self.view, 'Ylim');
             x = get(self.view, 'CurrentPoint');
-            disp(x);
             
             if ~isempty(self.seeker)
                 self.seeker.XData = [x(1)-45 x(1)+45 x(1)+45 x(1)-45];
                 self.seeker.YData = [y(1) y(1) y(2) y(2)];
             end
         end
-        
         
         
         % gemaakt door jelle //////////////////////////////////////////////////
@@ -436,10 +448,6 @@ classdef Graph < handle
             end
         end
         %//////////////////////////////////////////////////////////////////////
-        
-        
-        
-        
         
         function handleSeeker(self, flag)
             switch flag
