@@ -26,6 +26,12 @@ classdef Graph < handle
         points;
         channel;
         tresholds;
+        locations_QRS;
+        integer_QRS;
+        point1;
+        saveDrawData;
+        saveData;
+        saveView;
     end
     
     methods
@@ -34,6 +40,9 @@ classdef Graph < handle
             self.scroll = 0;
             self.zoom = [-3 3];
             self.timeline = [0 2000];
+            self.locations_QRS = zeros(2,2);
+            self.integer_QRS = 0;
+            self.point1 = 1;
         end
         
         function toggleQRS(self, ~, ~)
@@ -159,8 +168,11 @@ classdef Graph < handle
         end
         
         function draw(self, data)
-            qrs = QRS.Analyzer(data);
             
+            
+            qrs = QRS.Analyzer(data);
+            self.saveDrawData = data;
+            self.saveView = self.view;
             self.analyzer = AF.Analyzer(qrs.qrs, length(data(:,1)));
             self.regions = AF.Util.regions(qrs.qrs, length(data(:,1)));
             if isempty(self.tresholds)
@@ -168,7 +180,7 @@ classdef Graph < handle
             end
             self.channel = 1;
             frag = AF.Util.split(data(:,1), self.regions);
-            
+            self.saveData = data(:,1);
             self.dataLine = plot(self.view, data(:,1), 'k'); hold on;
             self.qrsLine = plot(self.view, frag.qrs, 'g'); hold on;
             % find peaks on the graph, gets updated with graph.update()
@@ -197,6 +209,33 @@ classdef Graph < handle
         %         filename = 'C:\Users\502896\Desktop\Documentatie Stagiaires\Ben Havenaar\test.xlsx';
         %         xlswrite(filename, xData);
         %     end
+        
+        
+        
+        %%----------------------------------------------------------------------
+        % redraw function from jelle, this will redraw the qrs line with
+        % the manual markings
+        
+        function redraw(self)
+            
+            self.analyzer = AF.Analyzer(self.locations_QRS, length(self.saveDrawData(:,1)));
+            self.regions = AF.Util.regions(self.locations_QRS, length(self.saveDrawData(:,1)));
+            self.channel = 1;
+            frag = AF.Util.split(self.saveDrawData(:,1), self.regions);
+            disp(frag.qrs);
+            self.dataLine = plot(self.saveView, self.saveData(:,1), 'k'); hold on;
+            self.qrsLine = plot(self.saveView, frag.qrs, 'g'); hold off;
+            
+            ylim(self.view, self.zoom);
+            xlim(self.view, self.timeline);
+            
+            set(self.view, 'YTick',[], 'YTickLabel',[], 'box', 'off',...
+                'XAxisLocation', 'top');
+            
+            set(self.view, 'ButtonDownFcn', @self.markFixer);
+            set(self.dataLine, 'ButtonDownFcn', @self.markFixer);
+            set(self.qrsLine, 'ButtonDownFcn', @self.markFixer);
+        end
         
         function update(self, data, ch)
             % update graph
@@ -369,6 +408,53 @@ classdef Graph < handle
                 self.seeker.YData = [y(1) y(1) y(2) y(2)];
             end
         end
+        
+        % gemaakt door jelle //////////////////////////////////////////////////
+        % TO DO:
+        % Integer 'point1' toegevoegd zodat de punten worden opgeslagen in
+        % dezelfde matrix.
+        % volgende stap = modulaire array (bijv. integer point1 gebruiken om
+        % de array met een rij te vergroten)
+        function getQrs(self)
+            x = get(self.view, 'CurrentPoint');
+            if self.integer_QRS == 0
+                self.integer_QRS = self.integer_QRS + 1;
+                self.locations_QRS(self.point1,1) = round(x(1,1));
+                disp(self.locations_QRS(self.point1,1));
+                
+                
+            else if self.integer_QRS == 1
+                    self.integer_QRS = self.integer_QRS + 1;
+                    self.locations_QRS(self.point1,2) = round(x(1,1));
+                    disp(self.locations_QRS(self.point1,1));
+                    disp(self.locations_QRS(:,:));
+                else
+                    self.integer_QRS = 0;
+                    self.point1 = self.point1 + 1;
+                    self.integer_QRS = self.integer_QRS + 1;
+                    self.locations_QRS(self.point1,1) = round(x(1,1));
+                    disp(self.locations_QRS(self.point1,1));
+                    
+                end
+            end
+        end
+        %semi functionele ctrl+z functie. verplaatst de laatst gebruikte rij
+        %met 0.
+        function deleteEntry(self)
+            if self.point1 > 0
+                self.locations_QRS(self.point1,:) = 0:0;
+                self.point1 = self.point1 - 1;
+                self.integer_QRS = 0;
+                disp(self.locations_QRS(:,:));
+            end
+            % Dit is nodig zodat self.point1 niet 0 kan zijn om een error te
+            % voorkomen in de getQRS functie (kan niet refereren naar een
+            % array op de rij '0')
+            if self.point1 == 0
+                self.point1 = 1;
+            end
+        end
+        %//////////////////////////////////////////////////////////////////////
         
         function handleSeeker(self, flag)
             switch flag
