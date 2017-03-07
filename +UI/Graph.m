@@ -32,6 +32,7 @@ classdef Graph < handle
         saveDrawData;
         saveData;
         saveView;
+
     end
     
     methods
@@ -110,6 +111,7 @@ classdef Graph < handle
             end
         end
         
+
         function scrollLeftCallback(self, ~, ~)
             tmp = self.scroll + diff(self.timeline)/2;
             
@@ -209,9 +211,7 @@ classdef Graph < handle
         %         filename = 'C:\Users\502896\Desktop\Documentatie Stagiaires\Ben Havenaar\test.xlsx';
         %         xlswrite(filename, xData);
         %     end
-        
-        
-        
+
         %%----------------------------------------------------------------------
         % redraw function from jelle, this will redraw the qrs line with
         % the manual markings
@@ -409,7 +409,8 @@ classdef Graph < handle
             end
         end
         
-        % gemaakt door jelle //////////////////////////////////////////////////
+
+
         % TO DO:
         % Integer 'point1' toegevoegd zodat de punten worden opgeslagen in
         % dezelfde matrix.
@@ -504,6 +505,7 @@ classdef Graph < handle
             y = y(:);
             y = repmat(y(:), 1, size(x, 2));
             ret = line(self.view, x, y, 'Color', 'red');
+
         end
         
         function selectable(self, src, ~)
